@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>브라우저 검사 테스트</title>
+  <style>
+    body { font-family: "Malgun Gothic", system-ui, sans-serif; margin: 16px; }
+    td, th { border: 1px solid #ccc; padding: 2px 8px; text-align: left; font-size: 13px; }
+    table { border-collapse: collapse; }
+    .pass { color: #1a7f4b; } .fail { color: #c0352b; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>브라우저 검사 테스트</h1>
+  <p>tests/guard_cases.json 사례를 JS 검사(sqlguard.js)와 DuckDB 확인(runner.js)에 돌립니다.</p>
+  <pre id="summary">실행 중…</pre>
+  <table id="out"><thead><tr><th></th><th>항목</th><th>기대</th><th>실제</th></tr></thead><tbody></tbody></table>
+
+  <script type="module">
+    import { checkLexical, isAggregateSql, tablesInSql } from "../app/sqlguard.js";
+    import { guardSql, runSql } from "../app/runner.js";
+    import { initDb } from "../app/db.js";
+    import { biggestChunk, crossCheckTables, reconcileTotals } from "../app/why.js";
+    import { prepareResultForAi } from "../app/api.js";
+
+    const tbody = document.querySelector("#out tbody");
+    let total = 0, failed = 0;
+    const row = (name, expect, actual, good) => {
+      total++; if (!good) failed++;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="${good ? "pass" : "fail"}">${good ? "OK" : "FAIL"}</td><td></td><td></td><td></td>`;
+      tr.children[1].textContent = name;
+      tr.children[2].textContent = expect;
+      tr.children[3].textContent = actual;
+      tbody.appendChild(tr);
+    };
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+    try {
+      await initDb();
+
+      // 1. 기본 데이터 행 수
+      const want = { campaigns: 34, ad_spend_daily: 2598, users: 57792, coupons: 2, orders: 123763 };
+      for (const [t, n] of Object.entries(want)) {
+        const r = await runSql(`SELECT COUNT(*) AS n FROM ${t}`);
+        row(`행 수 ${t}`, n, r.rows[0][0], r.rows[0][0] === n);
+      }
+
+      // 2. 공유 사례: 문자열 검사만 / DuckDB 확인까지
+      const cases = await (await fetch("guard_cases.json")).json();
+      for (const c of cases) {
+        const lex = checkLexical(c.sql);
+        row(`문자열 검사: ${c.name}`, c.allow ? "통과" : "차단", lex.ok ? "통과" : `차단(${lex.reason})`, lex.ok === c.allow);
+        const full = await guardSql(c.sql);
+        row(`전체 검사(DuckDB 포함): ${c.name}`, c.allow ? "통과" : "차단", full.ok ? "통과" : `차단(${full.reason})`, full.ok === c.allow);
+      }
+
+      // 3. 문자열 검사를 통과한 것 중 DuckDB 가 추가로 막는 사례 (문자열 검사가 놓쳐도 DuckDB 가 막는다)
+      for (const sql of ["SELECT 1; SELECT 2", "WITH a AS (SELECT 1) INSERT INTO users SELECT * FROM a"]) {
+        const full = await guardSql(sql);
+        row(`DuckDB 확인: ${sql}`, "차단", full.ok ? "통과" : `차단(${full.reason})`, !full.ok);
+      }
+
+      // 4. 실행 결과 모양: 큰 정수 합계·날짜가 화면용 값으로 오는지
+      const r1 = await runSql(`SELECT (SELECT COUNT(*) FROM users WHERE signup_date >= DATE '2025-12-01' AND signup_date < DATE '2026-01-01') AS "가입자 수", (SELECT SUM(amount) FROM orders WHERE order_date >= DATE '2025-12-01' AND order_date < DATE '2026-01-01') AS "매출"`);
+      row("2025-12 가입자 수·매출", "[[2571, 266551600]]", JSON.stringify(r1.rows), same(r1.rows, [[2571, 266551600]]));
+      const r2 = await runSql(`SELECT MIN(signup_date) AS d, SUM(budget) AS s FROM users, campaigns WHERE users.user_id = 'U000001'`);
+      row("날짜는 문자열, 합계는 숫자", "string / number", `${typeof r2.rows[0][0]} / ${typeof r2.rows[0][1]}`,
+        typeof r2.rows[0][0] === "string" && typeof r2.rows[0][1] === "number");
+      const r3 = await runSql(`WITH m AS (SELECT date_trunc('month', signup_date) AS m, COUNT(*) AS n FROM users GROUP BY 1) SELECT * FROM m ORDER BY m LIMIT 3;`);
+      row("WITH + 끝 세미콜론 실행", "3행", `${r3.rows.length}행 ${JSON.stringify(r3.rows[0])}`, r3.rows.length === 3);
+      const r4 = await runSql(`SELECT * FROM orders`, { maxRows: 5 });
+      row("행 수 상한", "5행 + truncated", `${r4.rows.length}행 truncated=${r4.truncated}`, r4.rows.length === 5 && r4.truncated);
+
+      // 5. 테이블 이름 읽기
+      const tcases = [
+        ["SELECT * FROM users u JOIN orders o ON o.user_id = u.user_id", ["users", "orders"]],
+        ['SELECT * FROM "users"', ["users"]],
+        ["WITH a AS (SELECT 1 AS x FROM campaigns), b AS (SELECT * FROM a) SELECT * FROM b JOIN ad_spend_daily USING (x)", ["campaigns", "ad_spend_daily"]],
+        ["SELECT extract(month FROM order_date) FROM orders", ["orders"]],
+        ["SELECT * FROM (SELECT * FROM users) s", ["users"]],
+        ["SELECT 'from users' AS t FROM coupons -- from orders", ["coupons"]],
+        ["SELECT * FROM generate_series(1, 3)", []],
+        ["SELECT a IS DISTINCT FROM b FROM users", ["users"]],
+      ];
+      for (const [sql, exp] of tcases) {
+        const got = tablesInSql(sql);
+        row(`테이블 이름: ${sql.slice(0, 60)}`, JSON.stringify(exp), JSON.stringify(got), same([...got].sort(), [...exp].sort()));
+      }
+
+      // 6. 집계 여부
+      const acases = [
+        ["SELECT COUNT(*) FROM users", true],
+        ["SELECT channel, SUM(budget) FROM campaigns GROUP BY 1", true],
+        ["SELECT * FROM orders", false],
+        ["SELECT DISTINCT user_id FROM orders", false],
+        ["SELECT user_id, SUM(amount) OVER (PARTITION BY user_id) FROM orders", false],
+        ["SELECT 'count(' AS t FROM users", false],
+      ];
+      for (const [sql, exp] of acases) {
+        const got = isAggregateSql(sql);
+        row(`집계 여부: ${sql.slice(0, 60)}`, exp, got, got === exp);
+      }
+
+      // 7. 산출 근거 대조 · 가장 큰 덩어리
+      const dbTables = ["campaigns", "ad_spend_daily", "users", "coupons", "orders"];
+      const c1 = crossCheckTables("SELECT * FROM users u JOIN orders o USING (user_id)", ["users", "orders"], dbTables);
+      row("근거 대조: 일치", "ok", c1.ok ? "ok" : JSON.stringify(c1), c1.ok);
+      const c2 = crossCheckTables("SELECT * FROM users", ["users", "orders"], dbTables);
+      row("근거 대조: 근거에만 있는 테이블", "확인 필요(onlyInClaim=orders)", JSON.stringify(c2), !c2.ok && same(c2.onlyInClaim, ["orders"]));
+      const c3 = crossCheckTables("SELECT * FROM users u JOIN orders o USING (user_id)", ["users"], dbTables);
+      row("근거 대조: SQL 에만 있는 테이블", "확인 필요(onlyInSql=orders)", JSON.stringify(c3), !c3.ok && same(c3.onlyInSql, ["orders"]));
+      const c4 = crossCheckTables("SELECT * FROM users", ["users", "payments"], dbTables);
+      row("근거 대조: DB 에 없는 테이블", "확인 필요(missingInDb=payments)", JSON.stringify(c4), !c4.ok && same(c4.missingInDb, ["payments"]));
+      const c5 = crossCheckTables("WITH a AS (SELECT * FROM users) SELECT * FROM a", ["USERS", "a"], dbTables);
+      row("근거 대조: 대소문자 · CTE 이름", "확인 필요(a 는 테이블 아님)", JSON.stringify(c5), !c5.ok && same(c5.onlyInClaim, ["a"]));
+
+      const bc = biggestChunk({ columns: ["채널", "광고비"], rows: [["검색광고", 300], ["인플루언서", 500], ["유튜브", 200]] }, "광고비", ["채널"]);
+      row("가장 큰 덩어리: 값 · 비중", "인플루언서 500 50%", `${bc.label} ${bc.value} ${bc.share * 100}%`, bc.label === "인플루언서" && bc.value === 500 && bc.share === 0.5 && bc.total === 1000);
+      const bc2 = biggestChunk({ columns: ["채널", "광고비"], rows: [["a", 1]] }, "없는열", ["채널"]);
+      row("가장 큰 덩어리: 없는 열", "error", JSON.stringify(bc2), !!bc2.error);
+      const bc3 = biggestChunk({ columns: ["채널", "CAC"], rows: [["a", "문자"]] }, "CAC", ["채널"]);
+      row("가장 큰 덩어리: 숫자가 아닌 열", "error", JSON.stringify(bc3), !!bc3.error);
+      const bc4 = biggestChunk({ columns: ["채널", "n"], rows: [["a", 0], ["b", 0]] }, "n", ["채널"]);
+      row("가장 큰 덩어리: 합이 0", "error", JSON.stringify(bc4), !!bc4.error);
+      const bc5 = biggestChunk({ columns: ["채널", "n"], rows: [["a", 2], ["b", 6]] }, "n", []);
+      row("가장 큰 덩어리: 라벨 열 없으면 문자열 열", "b 75%", `${bc5.label} ${bc5.share * 100}%`, bc5.label === "b" && bc5.share === 0.75);
+
+      const orig = { columns: ["채널", "광고비 합계"], rows: [["a", 100], ["b", 200]], truncated: false };
+      const okSplit = { columns: ["캠페인", "광고비"], rows: [["a1", 60], ["a2", 40], ["b1", 200]], truncated: false };
+      const badSplit = { columns: ["캠페인", "광고비"], rows: [["a1", 6000], ["a2", 4000], ["b1", 200]], truncated: false };
+      const pair = { drill_column: "광고비", original_column: "광고비 합계" };
+      const rc1 = reconcileTotals(orig, okSplit, pair);
+      row("합계 대조: 일치", "ok", `${rc1.status}`, rc1.status === "ok");
+      const rc2 = reconcileTotals(orig, badSplit, pair);
+      row("합계 대조: 부풀면 mismatch", "mismatch", `${rc2.status}`, rc2.status === "mismatch");
+      const rc3 = reconcileTotals(orig, okSplit, { drill_column: "", original_column: "" });
+      row("합계 대조: 짝이 없으면 skipped", "skipped", `${rc3.status}`, rc3.status === "skipped");
+      const rc4 = reconcileTotals(orig, okSplit, { drill_column: "없는열", original_column: "광고비 합계" });
+      row("합계 대조: 없는 열이면 skipped", "skipped", `${rc4.status}`, rc4.status === "skipped");
+      const rc5 = reconcileTotals({ ...orig, truncated: true }, okSplit, pair);
+      row("합계 대조: 잘린 결과면 skipped", "skipped", `${rc5.status}`, rc5.status === "skipped");
+
+      // 8. AI 로 보내는 값
+      const p1 = prepareResultForAi({ columns: ["채널", "n"], rows: Array.from({ length: 80 }, (_, i) => ["c" + i, i]) }, "SELECT channel, COUNT(*) FROM users GROUP BY 1");
+      row("AI 전송: 집계 80행 -> 50행", "50행", `${p1.rows.length}행 / row_count ${p1.row_count}`, p1.rows.length === 50 && p1.row_count === 80);
+      const p2 = prepareResultForAi({ columns: ["user_id", "n"], rows: [["U1", 1]] }, "SELECT user_id, COUNT(*) FROM orders GROUP BY 1");
+      row("AI 전송: user_id 열이 있으면 행 안 보냄", "0행", `${p2.rows.length}행 (${p2.rows_note})`, p2.rows.length === 0 && !!p2.rows_note);
+      const p3 = prepareResultForAi({ columns: ["order_id", "amount"], rows: [["O1", 10]] }, "SELECT order_id, amount FROM orders LIMIT 5");
+      row("AI 전송: 집계가 아니면 행 안 보냄", "0행", `${p3.rows.length}행 (${p3.rows_note})`, p3.rows.length === 0 && !!p3.rows_note);
+    } catch (e) {
+      row("테스트 실행 중 오류", "없음", String(e && e.stack || e), false);
+    }
+
+    document.getElementById("summary").textContent = `${total - failed}/${total} 일치${failed ? ` (실패 ${failed})` : ""}`;
+    document.body.dataset.done = failed ? "fail" : "pass";
+  </script>
+</body>
+</html>

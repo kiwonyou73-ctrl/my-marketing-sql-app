@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "about": "검증한 질문과 SQL. sql 이 배열이면 줄을 \\n 으로 이어 붙여 쓴다. definitions 의 정의 문장은 docs/데이터_사전.md (schema.json 의 metrics) 와 같아야 한다.",
+  "questions": [
+    {
+      "id": "channel-cac",
+      "name": "광고 채널별 광고비 · 가입자 · 첫 구매 · 전환율 · 1명당 광고비",
+      "question": "광고 채널별로 광고비 합계, 가입자 수, 첫 구매 고객 수, 구매 전환율, 첫 구매 고객 1명당 광고비를 보여줘. 광고비와 고객은 따로 집계한 뒤 채널로 합쳐줘",
+      "definitions": [
+        {"name": "가입자", "definition": "users의 고객 수 (가입일 signup_date 기준)"},
+        {"name": "첫 구매 고객", "definition": "orders에 한 번이라도 나오는 고객. 가입자 중 주문이 없는 고객은 아직 첫 구매 전이다"},
+        {"name": "구매 전환율", "definition": "첫 구매 고객 ÷ 가입자"},
+        {"name": "CAC", "definition": "채널의 광고비 합 ÷ 그 채널 캠페인으로 가입해 첫 구매한 고객 수"}
+      ],
+      "notes": [
+        "광고비는 캠페인별로 먼저 합친 뒤 채널로 묶고, 고객 수는 따로 센 다음 채널로 합칩니다. 광고비를 고객 테이블과 바로 조인하지 않아 광고비가 고객 수만큼 반복되지 않습니다.",
+        "가입자 · 첫 구매 고객은 그 채널 캠페인으로 가입한 고객(signup_campaign_id)만 셉니다(사전의 CAC 정의). 광고 데이터(2024-07-18~) 이전에 가입한 고객은 들어가지 않습니다."
+      ],
+      "sql": [
+        "WITH spend AS (",
+        "  SELECT c.channel, SUM(a.spend) AS spend",
+        "  FROM campaigns c JOIN ad_spend_daily a ON a.campaign_id = c.campaign_id",
+        "  GROUP BY c.channel",
+        "),",
+        "customers AS (",
+        "  SELECT c.channel,",
+        "         COUNT(*) AS signups,",
+        "         COUNT(*) FILTER (WHERE u.user_id IN (SELECT o.user_id FROM orders o)) AS buyers",
+        "  FROM users u JOIN campaigns c ON c.campaign_id = u.signup_campaign_id",
+        "  GROUP BY c.channel",
+        ")",
+        "SELECT s.channel AS \"채널\",",
+        "       s.spend AS \"광고비 합계\",",
+        "       g.signups AS \"가입자 수\",",
+        "       g.buyers AS \"첫 구매 고객 수\",",
+        "       ROUND(g.buyers * 1.0 / g.signups, 4) AS \"구매 전환율\",",
+        "       ROUND(s.spend * 1.0 / g.buyers) AS \"첫 구매 고객 1명당 광고비\"",
+        "FROM spend s JOIN customers g ON g.channel = s.channel",
+        "ORDER BY s.spend DESC, s.channel"
+      ]
+    },
+    {
+      "id": "age-top-category",
+      "name": "연령대별 매출 1위 카테고리와 비중",
+      "question": "연령대별로 매출이 가장 큰 카테고리와 그 비중을 보여줘",
+      "definitions": [
+        {"name": "매출", "definition": "orders.amount의 합"}
+      ],
+      "notes": [
+        "매출은 쿠폰 할인 후 결제 금액(orders.amount)의 합입니다. 연령대는 users.age_group 입니다.",
+        "비중 = 그 연령대의 1위 카테고리 매출 ÷ 그 연령대의 전체 매출. 매출이 같으면 카테고리 이름 순으로 앞선 쪽을 1위로 둡니다."
+      ],
+      "sql": [
+        "WITH rev AS (",
+        "  SELECT u.age_group, o.category, SUM(o.amount) AS revenue",
+        "  FROM orders o JOIN users u ON u.user_id = o.user_id",
+        "  GROUP BY u.age_group, o.category",
+        "),",
+        "ranked AS (",
+        "  SELECT age_group, category, revenue,",
+        "         SUM(revenue) OVER (PARTITION BY age_group) AS total,",
+        "         ROW_NUMBER() OVER (PARTITION BY age_group ORDER BY revenue DESC, category) AS rn",
+        "  FROM rev",
+        ")",
+        "SELECT age_group AS \"연령대\",",
+        "       category AS \"매출 1위 카테고리\",",
+        "       revenue AS \"카테고리 매출\",",
+        "       total AS \"연령대 전체 매출\",",
+        "       ROUND(revenue * 1.0 / total, 4) AS \"비중\"",
+        "FROM ranked",
+        "WHERE rn = 1",
+        "ORDER BY age_group"
+      ]
+    },
+    {
+      "id": "month-repurchase-coupon",
+      "name": "가입 월별 30일 내 재구매율 — 신규가입 쿠폰 사용 vs 미사용",
+      "question": "가입 월별로 첫 구매 후 30일 안에 다시 구매한 고객 비율을 신규가입 쿠폰을 쓴 고객과 안 쓴 고객으로 나눠 보여줘",
+      "definitions": [
+        {"name": "첫 구매 고객", "definition": "orders에 한 번이라도 나오는 고객. 가입자 중 주문이 없는 고객은 아직 첫 구매 전이다"},
+        {"name": "재구매율(30일)", "definition": "첫 구매일 다음 날부터 30일 안에 주문이 한 번 더 있는 고객 비율"}
+      ],
+      "notes": [
+        "가입 월은 users.signup_date 의 월이고, 비율의 분모는 그 달에 가입한 첫 구매 고객입니다. 재구매는 첫 구매일 +1일 ~ +30일 사이에 주문이 한 번 더 있는 경우입니다.",
+        "신규가입 쿠폰 사용 = CPN-NEW 를 쓴 주문이 있는 고객입니다. 이 쿠폰은 첫 구매에만 쓸 수 있고, 데이터에서도 모두 첫 구매일에 쓰였습니다.",
+        "데이터가 2025-12-31 까지라 최근 가입 월은 첫 구매 후 30일이 다 지나지 않은 고객이 있어 재구매율이 낮게 보일 수 있습니다."
+      ],
+      "sql": [
+        "WITH first_order AS (",
+        "  SELECT user_id, MIN(order_date) AS first_date",
+        "  FROM orders",
+        "  GROUP BY user_id",
+        "),",
+        "coupon_users AS (",
+        "  SELECT DISTINCT user_id FROM orders WHERE coupon_id = 'CPN-NEW'",
+        "),",
+        "repeat_users AS (",
+        "  SELECT DISTINCT o.user_id",
+        "  FROM orders o JOIN first_order f ON f.user_id = o.user_id",
+        "  WHERE o.order_date > f.first_date AND o.order_date <= f.first_date + 30",
+        "),",
+        "flags AS (",
+        "  SELECT strftime(u.signup_date, '%Y-%m') AS signup_month,",
+        "         CASE WHEN c.user_id IS NOT NULL THEN '사용' ELSE '미사용' END AS coupon_used,",
+        "         r.user_id IS NOT NULL AS repurchased",
+        "  FROM first_order f",
+        "  JOIN users u ON u.user_id = f.user_id",
+        "  LEFT JOIN coupon_users c ON c.user_id = f.user_id",
+        "  LEFT JOIN repeat_users r ON r.user_id = f.user_id",
+        ")",
+        "SELECT signup_month AS \"가입 월\",",
+        "       coupon_used AS \"신규가입 쿠폰\",",
+        "       COUNT(*) AS \"첫 구매 고객 수\",",
+        "       COUNT(*) FILTER (WHERE repurchased) AS \"30일 내 재구매 고객 수\",",
+        "       ROUND(COUNT(*) FILTER (WHERE repurchased) * 1.0 / COUNT(*), 4) AS \"재구매율(30일)\"",
+        "FROM flags",
+        "GROUP BY signup_month, coupon_used",
+        "ORDER BY signup_month, coupon_used"
+      ]
+    }
+  ]
+}

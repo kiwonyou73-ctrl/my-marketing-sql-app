@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "source": "docs/데이터_사전.md",
+  "company": "뷰티 · 패션 · 식품 · 건강 · 생활 · 디지털 상품을 파는 소비자 대상 모바일 커머스 플랫폼. 마케팅팀은 채널(검색광고 · 인스타그램 · 유튜브 · 인플루언서 · 친구초대)별 캠페인에 광고비를 쓰고, 가입자가 첫 구매를 하고 다시 사는지를 월간으로 보고한다.",
+  "period": "기본 데이터(data/ 폴더) 기준 2024-07-01 ~ 2025-12-31 (18개월). users에는 기간 이전에 가입한 기존 고객도 들어 있다. 이 기간은 기본 데이터에만 해당한다 — 사용자가 올린 파일에는 이 기간 밖(예: 2026-01)의 날짜가 있을 수 있다.",
+  "tables": [
+    {
+      "name": "campaigns",
+      "file": "data/campaigns.csv",
+      "grain": "광고 캠페인 1개",
+      "row_count": 34,
+      "keys": ["campaign_id"],
+      "columns": [
+        {"name": "campaign_id", "type": "VARCHAR", "desc": "캠페인 번호", "example": "C001 꼴"},
+        {"name": "channel", "type": "VARCHAR", "desc": "채널", "example": "검색광고 · 인스타그램 · 유튜브 · 인플루언서 · 친구초대"},
+        {"name": "campaign_name", "type": "VARCHAR", "desc": "캠페인 이름", "example": "채널명 YYYY-MM N호 꼴"},
+        {"name": "start_date", "type": "DATE", "desc": "시작일", "example": "YYYY-MM-DD"},
+        {"name": "end_date", "type": "DATE", "desc": "종료일", "example": "YYYY-MM-DD"},
+        {"name": "budget", "type": "BIGINT", "desc": "예산(원). 실제 광고비보다 약간 크다", "example": "원 단위 정수"}
+      ]
+    },
+    {
+      "name": "ad_spend_daily",
+      "file": "data/ad_spend_daily.csv",
+      "grain": "캠페인 1개의 하루 광고 집행",
+      "row_count": 2598,
+      "keys": ["campaign_id", "spend_date"],
+      "columns": [
+        {"name": "campaign_id", "type": "VARCHAR", "desc": "캠페인 번호 (campaigns.campaign_id)", "example": "C001 꼴"},
+        {"name": "spend_date", "type": "DATE", "desc": "집행일", "example": "2024-07-18 ~ 2025-12-31 범위"},
+        {"name": "spend", "type": "BIGINT", "desc": "광고비(원)", "example": "원 단위 정수"},
+        {"name": "impressions", "type": "BIGINT", "desc": "노출 수", "example": "정수"},
+        {"name": "clicks", "type": "BIGINT", "desc": "클릭 수", "example": "정수"}
+      ]
+    },
+    {
+      "name": "users",
+      "file": "data/users.csv",
+      "grain": "고객(가입자) 1명",
+      "row_count": 57792,
+      "keys": ["user_id"],
+      "columns": [
+        {"name": "user_id", "type": "VARCHAR", "desc": "고객 번호", "example": "U000000 꼴"},
+        {"name": "signup_date", "type": "DATE", "desc": "가입일", "example": "2022-08-01 ~ 2025-12-31 범위"},
+        {"name": "signup_channel", "type": "VARCHAR", "desc": "가입 채널. 광고 채널 다섯 + 자연유입", "example": "검색광고 · 인스타그램 · 유튜브 · 인플루언서 · 친구초대 · 자연유입"},
+        {"name": "signup_campaign_id", "type": "VARCHAR", "desc": "가입으로 이어진 캠페인 (campaigns.campaign_id). 광고로 가입하지 않았으면 결측값(NULL)", "example": "C001 꼴 또는 NULL"},
+        {"name": "age_group", "type": "VARCHAR", "desc": "연령대", "example": "20대 · 30대 · 40대 · 50대 이상"},
+        {"name": "region", "type": "VARCHAR", "desc": "지역", "example": "서울 · 경기 · 부산 · 인천 · 대구 · 기타"}
+      ]
+    },
+    {
+      "name": "coupons",
+      "file": "data/coupons.csv",
+      "grain": "쿠폰 종류 1개",
+      "row_count": 2,
+      "keys": ["coupon_id"],
+      "columns": [
+        {"name": "coupon_id", "type": "VARCHAR", "desc": "쿠폰 번호", "example": "CPN-NEW · CPN-SEASON"},
+        {"name": "coupon_type", "type": "VARCHAR", "desc": "쿠폰 유형", "example": "신규가입 · 시즌"},
+        {"name": "discount_amount", "type": "BIGINT", "desc": "할인액(원)", "example": "5000 · 3000"},
+        {"name": "description", "type": "VARCHAR", "desc": "설명", "example": "문장"}
+      ]
+    },
+    {
+      "name": "orders",
+      "file": "data/orders.csv",
+      "grain": "주문 1건",
+      "row_count": 123763,
+      "keys": ["order_id"],
+      "columns": [
+        {"name": "order_id", "type": "VARCHAR", "desc": "주문 번호", "example": "O0000000 꼴"},
+        {"name": "user_id", "type": "VARCHAR", "desc": "고객 번호 (users.user_id)", "example": "U000000 꼴"},
+        {"name": "order_date", "type": "DATE", "desc": "주문일", "example": "2022-08-01 ~ 2025-12-31 범위"},
+        {"name": "category", "type": "VARCHAR", "desc": "주문 카테고리 (6개)", "example": "뷰티 · 패션 · 식품 · 건강 · 생활 · 디지털"},
+        {"name": "amount", "type": "BIGINT", "desc": "결제 금액(원, 쿠폰 할인 후)", "example": "원 단위 정수"},
+        {"name": "coupon_id", "type": "VARCHAR", "desc": "사용한 쿠폰 (coupons.coupon_id). 안 썼으면 결측값(NULL)", "example": "CPN-NEW · CPN-SEASON 또는 NULL"}
+      ]
+    }
+  ],
+  "relationships": [
+    "campaigns 1 : N ad_spend_daily (campaign_id)",
+    "campaigns 1 : N users (users.signup_campaign_id = campaigns.campaign_id, 광고로 가입한 고객만)",
+    "users 1 : 0~N orders (user_id). 가입만 하고 한 번도 사지 않은 고객이 있다",
+    "orders.coupon_id → coupons.coupon_id"
+  ],
+  "metrics": [
+    {"name": "가입자", "definition": "users의 고객 수 (가입일 signup_date 기준)"},
+    {"name": "첫 구매 고객", "definition": "orders에 한 번이라도 나오는 고객. 가입자 중 주문이 없는 고객은 아직 첫 구매 전이다"},
+    {"name": "구매 전환율", "definition": "첫 구매 고객 ÷ 가입자"},
+    {
+      "name": "CAC",
+      "definition": "채널의 광고비 합 ÷ 그 채널 캠페인으로 가입해 첫 구매한 고객 수",
+      "warning": "광고비를 고객 테이블과 바로 조인하면 광고비가 고객 수만큼 반복된다. 광고비는 먼저 캠페인(또는 채널) 단위로 집계한 뒤 조인한다",
+      "sql_pattern": "채널별: WITH spend AS (SELECT c.channel, SUM(a.spend) AS spend FROM campaigns c JOIN ad_spend_daily a ON a.campaign_id = c.campaign_id GROUP BY c.channel), su AS (SELECT c.channel, COUNT(*) AS signups, COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.user_id)) AS buyers FROM users u JOIN campaigns c ON c.campaign_id = u.signup_campaign_id GROUP BY c.channel) SELECT s.channel, s.spend, u.signups, u.buyers, u.buyers * 1.0 / u.signups AS conversion, s.spend * 1.0 / u.buyers AS cac FROM spend s JOIN su u ON u.channel = s.channel. 캠페인별로 쪼갤 때는 channel 대신 campaign_id 로 같은 구조를 쓴다. 기간 조건은 spend 쪽은 a.spend_date, su 쪽은 u.signup_date 에 건다."
+    },
+    {"name": "재구매율(30일)", "definition": "첫 구매일 다음 날부터 30일 안에 주문이 한 번 더 있는 고객 비율"},
+    {"name": "매출", "definition": "orders.amount의 합"}
+  ],
+  "rules": [
+    "신규가입 쿠폰(CPN-NEW)은 가입 후 첫 구매에만 쓸 수 있는 5,000원 할인이다. 2025-09부터 가입자 대부분에게 발행했다.",
+    "광고를 보지 않고 들어온 고객은 signup_campaign_id가 비어 있고 signup_channel이 «자연유입»이다.",
+    "가입일과 첫 구매일은 보통 0~14일 차이다."
+  ],
+  "observed_notes": [
+    {
+      "source": "data/ 직접 확인 (데이터 사전에는 없는 내용)",
+      "note": "signup_channel이 광고 채널(검색광고 · 친구초대)인데 signup_campaign_id가 비어 있는 고객이 4,504명 있다(검색광고 3,187 · 친구초대 1,317). 가입일이 모두 2022-08-01 ~ 2024-05-31로 광고 데이터(2024-07-18~) 이전이다. 채널별 가입자를 signup_channel로 세는 것과 캠페인 조인으로 세는 것은 이 기간에 숫자가 다르다."
+    },
+    {
+      "source": "data/ 직접 확인 (데이터 사전에는 없는 내용)",
+      "note": "users와 orders는 2022-08-01부터 있다(광고 데이터보다 이르다). 월별 표에서 기간을 정하지 않으면 2022-08부터 나온다."
+    }
+  ]
+}

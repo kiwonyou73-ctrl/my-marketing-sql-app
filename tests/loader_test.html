@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>파일 올리기 함수 테스트</title>
+  <style>
+    body { font-family: "Malgun Gothic", system-ui, sans-serif; margin: 16px; }
+    td, th { border: 1px solid #ccc; padding: 2px 8px; text-align: left; font-size: 13px; }
+    table { border-collapse: collapse; }
+    .pass { color: #1a7f4b; } .fail { color: #c0352b; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>파일 올리기 함수 테스트</h1>
+  <pre id="summary">실행 중…</pre>
+  <table id="out"><thead><tr><th></th><th>항목</th><th>기대</th><th>실제</th></tr></thead><tbody></tbody></table>
+  <script type="module">
+    import { decodeUtf8, detectDelimiter, diffColumns, explainLoadError, sanitizeColumns, sanitizeTableName, scanCsv } from "../app/loader.js";
+    import { renderReport } from "../app/report.js";
+
+    const tbody = document.querySelector("#out tbody");
+    let total = 0, failed = 0;
+    const j = (v) => JSON.stringify(v);
+    const row = (name, expect, actual) => {
+      const good = j(expect) === j(actual);
+      total++; if (!good) failed++;
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td class="${good ? "pass" : "fail"}">${good ? "OK" : "FAIL"}</td><td></td><td></td><td></td>`;
+      tr.children[1].textContent = name; tr.children[2].textContent = j(expect); tr.children[3].textContent = j(actual);
+      tbody.appendChild(tr);
+    };
+
+    // 테이블 이름
+    row("테이블 이름: users.csv", { name: "users", changed: false }, sanitizeTableName("users.csv"));
+    row("테이블 이름: 대문자 확장자", { name: "Orders", changed: false }, sanitizeTableName("Orders.CSV"));
+    row("테이블 이름: xlsx", { name: "매출", changed: false }, sanitizeTableName("매출.xlsx"));
+    row("테이블 이름: 공백·괄호", { name: "orders_1", changed: true }, sanitizeTableName("orders (1).csv"));
+    row("테이블 이름: 숫자로 시작", { name: "_2025_users", changed: true }, sanitizeTableName("2025_users.csv"));
+    row("테이블 이름: 하이픈", { name: "my_data", changed: true }, sanitizeTableName("my-data.csv"));
+    row("테이블 이름: 글자가 없으면", { name: "table", changed: true }, sanitizeTableName("---.csv"));
+
+    // 컬럼 이름
+    const c1 = sanitizeColumns(["user id", "amount", " order date ", "a  b"]);
+    row("컬럼: 공백 -> 밑줄", ["user_id", "amount", "order_date", "a_b"], c1.names);
+    row("컬럼: 바뀐 것만 알림", ["user id", " order date ", "a  b"], c1.changes.map((c) => c.from));
+    const c2 = sanitizeColumns(["a", "", "A", "a"]);
+    row("컬럼: 빈 이름·겹침", ["a", "column2", "A_2", "a_3"], c2.names);
+    row("컬럼: 이름이 그대로면 알리지 않음", [], sanitizeColumns(["x", "y"]).changes);
+
+    // 구분 문자
+    row("구분 문자: 쉼표", ",", detectDelimiter("a,b,c\n1,2,3"));
+    row("구분 문자: 세미콜론", ";", detectDelimiter("a;b;c\n1;2;3"));
+    row("구분 문자: 탭", "\t", detectDelimiter("a\tb\tc\n1\t2\t3"));
+    row("구분 문자: 따옴표 안의 쉼표는 세지 않음", ";", detectDelimiter('"a,b,c";d\n1;2'));
+    row("구분 문자: 열이 하나면 쉼표", ",", detectDelimiter("a\n1\n2"));
+
+    // CSV 읽기
+    row("CSV: 기본", { header: ["a", "b"], rowCount: 2 }, scanCsv("a,b\n1,2\n3,4\n"));
+    row("CSV: 끝 줄바꿈 없음", { header: ["a", "b"], rowCount: 2 }, scanCsv("a,b\n1,2\n3,4"));
+    row("CSV: CRLF", { header: ["a", "b"], rowCount: 2 }, scanCsv("a,b\r\n1,2\r\n3,4\r\n"));
+    row("CSV: 빈 줄은 세지 않음", { header: ["a", "b"], rowCount: 2 }, scanCsv("a,b\n\n1,2\n\n3,4\n\n"));
+    row("CSV: 따옴표 안의 쉼표·줄바꿈은 한 행", { header: ["a", "b"], rowCount: 2 }, scanCsv('a,b\n"x,1","line1\nline2"\n3,4\n'));
+    row("CSV: 따옴표 이스케이프", { header: ["a", "b"], rowCount: 1 }, scanCsv('a,b\n"he said ""hi""",2\n'));
+    row("CSV: 헤더만 있으면 0행", { header: ["a", "b"], rowCount: 0 }, scanCsv("a,b\n"));
+    row("CSV: 비어 있음", { header: [], rowCount: 0 }, scanCsv(""));
+    row("CSV: 세미콜론", { header: ["a", "b"], rowCount: 1 }, scanCsv("a;b\n1;2\n", ";"));
+    row("CSV: 값이 빈 행은 센다", { header: ["a", "b"], rowCount: 2 }, scanCsv("a,b\n,\n1,2\n"));
+
+    // 인코딩 · BOM
+    const enc = (s) => new TextEncoder().encode(s);
+    row("UTF-8 BOM 은 무시", "a,b\n1,2", decodeUtf8(new Uint8Array([0xEF, 0xBB, 0xBF, ...enc("a,b\n1,2")])));
+    row("UTF-8 한글", "이름,값", decodeUtf8(enc("이름,값")));
+    let err = null;
+    try { decodeUtf8(new Uint8Array([0xC0, 0xAF, 0xB0, 0xA1])); } catch (e) { err = e.message.includes("UTF-8"); }
+    row("UTF-8 이 아니면 오류", true, err);
+
+    // 컬럼 비교 · 오류 안내
+    row("컬럼 비교: 같으면 null", null, diffColumns(["a", "B"], ["A", "b"]));
+    row("컬럼 비교: 없어진/새 컬럼", { removed: ["user_id"], added: ["amount"] }, diffColumns(["order_id", "user_id"], ["order_id", "amount"]));
+    row("오류 안내: 형식을 못 읽음", true, explainLoadError(new Error("Invalid Input Error: Error when sniffing file \"x.csv\".\nmore")).includes("CSV 형식을 읽지 못했습니다"));
+    row("오류 안내: 그 밖의 오류는 첫 줄만", "테이블로 올리지 못했습니다: boom", explainLoadError(new Error("boom\nsecond line")));
+
+    // 올린 결과 카드: 행 수가 같으면 ✓, 다르면 ✕
+    const base = { fileName: "x.csv", tableName: "x", tableNameChanged: false, replaced: false, columnChanges: [], columnDiff: null, fileRows: 5, tableRows: 5, match: true,
+      columns: [{ name: "a", type: "BIGINT" }], preview: { columns: ["a"], rows: [[1], [2]], truncated: false }, sheet: null };
+    const okCard = document.createElement("article");
+    renderReport(okCard, base);
+    row("카드: 같으면 ✓", ["✓ 같음", "1", "rowcmp ok"], [okCard.querySelector(".mark").textContent, okCard.dataset.match, okCard.querySelector(".rowcmp").className]);
+    const badCard = document.createElement("article");
+    renderReport(badCard, { ...base, tableRows: 4, match: false });
+    row("카드: 다르면 ✕", ["✕ 다름", "0", "rowcmp bad", "5", "4"],
+      [badCard.querySelector(".mark").textContent, badCard.dataset.match, badCard.querySelector(".rowcmp").className, badCard.querySelector(".rowcmp").dataset.fileRows, badCard.querySelector(".rowcmp").dataset.tableRows]);
+    const diffCard = document.createElement("article");
+    renderReport(diffCard, { ...base, replaced: true, columnDiff: { removed: ["user_id"], added: ["amount"] } });
+    row("카드: 컬럼이 바뀌면 알림", true, diffCard.textContent.includes("없어진 컬럼: user_id") && diffCard.textContent.includes("새 컬럼: amount") && diffCard.textContent.includes("기존 테이블을 바꿨습니다"));
+    const xssCard = document.createElement("article");
+    renderReport(xssCard, { ...base, fileName: "<img src=x onerror=alert(1)>.csv", preview: { columns: ["<b>a</b>"], rows: [["<scr" + "ipt>x</scr" + "ipt>"]], truncated: false } });
+    row("카드: 파일 이름·값 안의 HTML 은 글자로만 보임", 0, xssCard.querySelectorAll("img, b, script").length);
+
+    document.getElementById("summary").textContent = `${total - failed}/${total} 일치${failed ? ` (실패 ${failed})` : ""}`;
+    document.body.dataset.done = failed ? "fail" : "pass";
+  </script>
+</body>
+</html>

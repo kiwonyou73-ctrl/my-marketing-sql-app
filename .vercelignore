@@ -1,0 +1,6 @@
+.env
+tools/
+tests/
+다음달/
+.vscode/
+__pycache__/
