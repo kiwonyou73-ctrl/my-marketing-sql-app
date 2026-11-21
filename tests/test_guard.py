@@ -1,4 +1,4 @@
-"""api/_guard.py 를 tests/guard_cases.json 의 사례로 시험한다.
+"""lib/sql_guard.py 를 tests/guard_cases.json 의 사례로 시험한다.
 
     python tests/test_guard.py
 """
@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "api"))
+sys.path.insert(0, str(ROOT / "lib"))
 
-from _guard import check  # noqa: E402
+from sql_guard import check  # noqa: E402
 
 
 def main() -> int:

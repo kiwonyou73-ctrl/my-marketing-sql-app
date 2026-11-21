@@ -75,9 +75,6 @@ def load_api(name: str):
     file = ROOT / "api" / f"{name}.py"
     if not file.is_file():
         return None
-    api_dir = str(ROOT / "api")
-    if api_dir not in sys.path:
-        sys.path.insert(0, api_dir)  # api/_gemini.py 같은 공통 모듈을 import 하려고
     spec = importlib.util.spec_from_file_location(f"api_{name}", file)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

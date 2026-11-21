@@ -1,4 +1,4 @@
-// 읽기 전용 SQL 검사 (api/_guard.py 와 같은 규칙. tests/guard_cases.json 으로 둘을 함께 시험한다).
+// 읽기 전용 SQL 검사 (lib/sql_guard.py 와 같은 규칙. tests/guard_cases.json 으로 둘을 함께 시험한다).
 // 이 파일은 순수 함수만 둔다. DuckDB 로 SELECT 문인지 한 번 더 확인하는 층은 runner.js 에 있다.
 
 const FORBIDDEN_WORDS = [

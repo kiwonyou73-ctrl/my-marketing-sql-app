@@ -9,13 +9,17 @@ import json
 import os
 import re
 import sys
+from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 공통 모듈은 api/ 밖의 lib/ 에 둔다(api/ 안의 .py 는 전부 Vercel 함수가 되기 때문).
+_LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
 
-from _gemini import GeminiError, generate_json  # noqa: E402
-from _guard import check  # noqa: E402
-from _http import make_handler  # noqa: E402
-from _prompts import WHY_RESPONSE_SCHEMA, build_why_system_prompt, load_metric_definitions, sanitize_extra_tables  # noqa: E402
+from gemini_client import GeminiError, generate_json  # noqa: E402
+from http_json import serve_not_post, serve_post  # noqa: E402
+from prompts import WHY_RESPONSE_SCHEMA, build_why_system_prompt, load_metric_definitions, sanitize_extra_tables  # noqa: E402
+from sql_guard import check  # noqa: E402
 
 MAX_QUESTION = 500
 MAX_SQL = 5000
@@ -121,4 +125,9 @@ def handle(body):
     }
 
 
-handler = make_handler(handle)
+class handler(BaseHTTPRequestHandler):  # Vercel 은 이 이름(handler)의 클래스를 찾아 함수로 쓴다
+    def do_POST(self):
+        serve_post(self, handle)
+
+    def do_GET(self):
+        serve_not_post(self)

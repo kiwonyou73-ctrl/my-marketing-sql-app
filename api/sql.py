@@ -1,17 +1,21 @@
 """POST /api/sql  {question} -> {sql, interpretation, blocked}
 
 질문 + schema.json(테이블 설명)만 AI에 보낸다. 데이터 행은 받지도 보내지도 않는다.
-받은 SQL은 읽기 전용 검사(_guard)를 거치고, 막히면 blocked 에 이유를 담는다.
+받은 SQL은 읽기 전용 검사(lib/sql_guard.py)를 거치고, 막히면 blocked 에 이유를 담는다.
 """
 import os
 import sys
+from http.server import BaseHTTPRequestHandler
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # 로컬 · Vercel 양쪽에서 공통 모듈 import
+# 공통 모듈은 api/ 밖의 lib/ 에 둔다(api/ 안의 .py 는 전부 Vercel 함수가 되기 때문). 로컬 · Vercel 양쪽에서 같은 방식으로 찾는다.
+_LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
 
-from _gemini import GeminiError, generate_json  # noqa: E402
-from _guard import check  # noqa: E402
-from _http import make_handler  # noqa: E402
-from _prompts import SQL_RESPONSE_SCHEMA, build_sql_system_prompt, sanitize_extra_tables  # noqa: E402
+from gemini_client import GeminiError, generate_json  # noqa: E402
+from http_json import serve_not_post, serve_post  # noqa: E402
+from prompts import SQL_RESPONSE_SCHEMA, build_sql_system_prompt, sanitize_extra_tables  # noqa: E402
+from sql_guard import check  # noqa: E402
 
 MAX_QUESTION = 500
 
@@ -47,4 +51,9 @@ def handle(body):
     }
 
 
-handler = make_handler(handle)
+class handler(BaseHTTPRequestHandler):  # Vercel 은 이 이름(handler)의 클래스를 찾아 함수로 쓴다
+    def do_POST(self):
+        serve_post(self, handle)
+
+    def do_GET(self):
+        serve_not_post(self)

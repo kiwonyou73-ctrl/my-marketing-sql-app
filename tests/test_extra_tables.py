@@ -1,4 +1,4 @@
-"""AI 로 보내는 «올린 테이블 설명» 검사(api/_prompts.py sanitize_extra_tables) 시험.
+"""AI 로 보내는 «올린 테이블 설명» 검사(lib/prompts.py sanitize_extra_tables) 시험.
 
     python tests/test_extra_tables.py
 이름 · 컬럼 이름 · 타입 · 행 수만 통과하고, 값·행이 섞인 요청은 거절되는지 본다.
@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "api"))
+sys.path.insert(0, str(ROOT / "lib"))
 
-from _prompts import build_sql_system_prompt, sanitize_extra_tables  # noqa: E402
+from prompts import build_sql_system_prompt, sanitize_extra_tables  # noqa: E402
 
 GOOD = [{"name": "users", "row_count": 59130, "columns": [{"name": "user_id", "type": "VARCHAR"}, {"name": "signup_date", "type": "DATE"}]}]
 results = []

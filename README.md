@@ -37,5 +37,7 @@ python tools/serve.py
 - 정적 파일(`index.html` · `app/` · `data/` · `presets/`)과 `api/`의 Python 함수를 그대로 올립니다. 빌드 단계는 없습니다.
 - 프로젝트 설정의 Environment Variables에 `GEMINI_API_KEY`를 넣습니다. 모델을 바꾸려면 `GEMINI_MODEL`도 넣습니다.
 - `.vercelignore`가 `.env` · `tools/` · `tests/` · `다음달/` · `.vscode/`를 올리지 않게 막습니다.
-- `vercel.json`은 함수의 최대 실행 시간(60초)과, 함수가 읽는 `schema.json`을 함수 묶음에 넣는 설정만 담고 있습니다.
+- `api/`에는 함수 파일(`sql.py` · `why.py`)만 둡니다. Vercel은 `api/` 안의 `.py` 파일을 전부 함수로 보기 때문입니다. 공통 코드는 `lib/`에 있고, 각 함수 파일은 `class handler(BaseHTTPRequestHandler)`를 소스에 직접 적어야 합니다.
+- Python 함수에는 프로젝트의 파일이 기본으로 함께 들어가므로, 함수가 읽는 `schema.json`을 따로 지정하지 않아도 됩니다.
+- `vercel.json`은 함수의 최대 실행 시간(60초)만 정합니다.
 - 배포 주소에서는 `schema.json`도 누구나 볼 수 있습니다. 테이블 설명뿐이고 데이터는 들어 있지 않습니다.
